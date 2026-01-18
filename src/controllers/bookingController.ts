@@ -370,25 +370,35 @@ export const createAppointment = async (req: Request, res: Response) => {
         return res.status(500).json({ error: "Failed to create appointment" });
     }
 };
-// GET /appointments?date=YYYY-MM-DD&staffId=1
+// GET /appointments
+// Opcional: /appointments?date=YYYY-MM-DD
+// Opcional: /appointments?staffId=1
+// Opcional: /appointments?date=YYYY-MM-DD&staffId=1
 export const getAppointments = async (req: Request, res: Response) => {
     try {
         const date = req.query.date ? String(req.query.date) : undefined;
         const staffId = req.query.staffId ? Number(req.query.staffId) : undefined;
 
-        let dayStart: Date | undefined;
-        let dayEnd: Date | undefined;
+        const where: any = {};
 
+        // Si viene date, filtramos por ese día completo en UTC
         if (date) {
-            dayStart = new Date(`${date}T00:00:00.000Z`);
-            dayEnd = new Date(`${date}T23:59:59.999Z`);
+            const dayStart = new Date(`${date}T00:00:00.000Z`);
+            const dayEnd = new Date(`${date}T23:59:59.999Z`);
+
+            where.dateTime = {
+                gte: dayStart,
+                lte: dayEnd,
+            };
+        }
+
+        // Si viene staffId, filtramos por staff
+        if (staffId !== undefined) {
+            where.staffId = staffId;
         }
 
         const appointments = await prisma.appointment.findMany({
-            where: {
-                ...(date ? { dateTime: { gte: dayStart!, lte: dayEnd! } } : {}),
-                ...(staffId ? { staffId } : {}),
-            },
+            where,
             include: {
                 service: true,
                 staff: true,
@@ -406,12 +416,6 @@ export const getAppointments = async (req: Request, res: Response) => {
 };
 
 
-return res.json({ date, staffId: staffId || null, appointments });
-    } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Failed to fetch appointments" });
-}
-};
 // DELETE /appointments/:id
 export const deleteAppointment = async (req: Request, res: Response) => {
     try {
