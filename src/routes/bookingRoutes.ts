@@ -5,7 +5,8 @@ import {
     createAppointment,
     getStaff,
     seedDatabase,
-    getAppointments, // 👈 AÑADE ESTO
+    getAppointments,
+    deleteAppointment, // ✅ agrega esto
 } from "../controllers/bookingController";
 
 const router = Router();
@@ -13,10 +14,15 @@ const router = Router();
 router.get("/services", getServices);
 router.get("/staff", getStaff);
 router.get("/availability", getAvailability);
+
+// ✅ APPOINTMENTS
 router.post("/appointments", createAppointment);
-router.get("/appointments", getAppointments); // ✅ NUEVO
+router.get("/appointments", getAppointments);
+router.delete("/appointments/:id", deleteAppointment);
+
+// ✅ DEMO
 router.get("/demo/seed", seedDatabase);
 router.post("/demo/seed", seedDatabase);
 
-
 export default router;
+
