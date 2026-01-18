@@ -373,23 +373,20 @@ export const createAppointment = async (req: Request, res: Response) => {
 // GET /appointments?date=YYYY-MM-DD&staffId=1
 export const getAppointments = async (req: Request, res: Response) => {
     try {
-        const date = String(req.query.date || "");
+        const date = req.query.date ? String(req.query.date) : undefined;
         const staffId = req.query.staffId ? Number(req.query.staffId) : undefined;
 
-        if (!date) {
-            return res.status(400).json({ error: "Missing date (YYYY-MM-DD)" });
-        }
+        let dayStart: Date | undefined;
+        let dayEnd: Date | undefined;
 
-        // Rango del día completo en UTC
-        const dayStart = new Date(`${date}T00:00:00.000Z`);
-        const dayEnd = new Date(`${date}T23:59:59.999Z`);
+        if (date) {
+            dayStart = new Date(`${date}T00:00:00.000Z`);
+            dayEnd = new Date(`${date}T23:59:59.999Z`);
+        }
 
         const appointments = await prisma.appointment.findMany({
             where: {
-                dateTime: {
-                    gte: dayStart,
-                    lte: dayEnd,
-                },
+                ...(date ? { dateTime: { gte: dayStart!, lte: dayEnd! } } : {}),
                 ...(staffId ? { staffId } : {}),
             },
             include: {
@@ -401,11 +398,19 @@ export const getAppointments = async (req: Request, res: Response) => {
             },
         });
 
-        return res.json({ date, staffId: staffId || null, appointments });
+        return res.status(200).json(appointments);
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: "Failed to fetch appointments" });
     }
+};
+
+
+return res.json({ date, staffId: staffId || null, appointments });
+    } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Failed to fetch appointments" });
+}
 };
 // DELETE /appointments/:id
 export const deleteAppointment = async (req: Request, res: Response) => {
