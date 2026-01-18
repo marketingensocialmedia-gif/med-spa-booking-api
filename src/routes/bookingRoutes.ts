@@ -13,6 +13,7 @@ router.get("/services", getServices);
 router.get("/staff", getStaff);
 router.get("/availability", getAvailability);
 router.post("/appointments", createAppointment);
+router.get("/demo/seed", seedDatabase);
 router.post("/demo/seed", seedDatabase);
 
 export default router;

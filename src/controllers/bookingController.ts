@@ -73,7 +73,7 @@ export const seedDatabase = async (req: Request, res: Response) => {
         // 1. Check if services exist
         const serviceCount = await prisma.service.count();
         if (serviceCount > 0) {
-            return res.status(200).json({ message: "Data already exists. Skipping seed." });
+            return res.status(200).json({ ok: true, message: "Data already exists" });
         }
 
         // 2. Create Services
@@ -97,9 +97,9 @@ export const seedDatabase = async (req: Request, res: Response) => {
 
         // 3. Create Staff
         const staffData = [
-            { name: "Alice", role: "Nurse" },
-            { name: "Bob", role: "Technician" },
-            { name: "Charlie", role: "Therapist" }
+            { name: "Alice", role: "Injector" },
+            { name: "Bob", role: "Esthetician" },
+            { name: "Charlie", role: "Massage therapist" }
         ];
 
         const createdStaff = [];
@@ -154,10 +154,10 @@ export const seedDatabase = async (req: Request, res: Response) => {
             }
         });
 
-        return res.status(201).json({
-            message: "Database seeded successfully",
-            services: createdServices.length,
-            staff: createdStaff.length
+        return res.status(200).json({
+            ok: true,
+            servicesCount: createdServices.length,
+            staffCount: createdStaff.length
         });
     } catch (error) {
         console.error(error);
