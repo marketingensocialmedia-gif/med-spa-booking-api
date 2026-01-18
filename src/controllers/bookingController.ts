@@ -245,10 +245,10 @@ export const getAvailability = async (req: Request, res: Response) => {
 
             // ✅ Si staffId está especificado: solo revisa ese staff
             // ✅ Si no: basta con que AL MENOS 1 staff esté libre
-            const slotIsAvailable = staffs.some((staff) => {
+            const slotIsAvailable = staffs.some((staff: any) => {
                 const staffAppts = staffAppointmentsMap.get(staff.id) ?? [];
 
-                const hasConflict = staffAppts.some((appt) => {
+                const hasConflict = staffAppts.some((appt: any) => {
                     const apptStart = new Date(appt.dateTime);
                     const apptDuration = appt.service?.duration ?? service.duration;
                     return overlaps(slotStart, service.duration, apptStart, apptDuration);
@@ -331,7 +331,7 @@ export const createAppointment = async (req: Request, res: Response) => {
         const startMs = start.getTime();
         const endMs = startMs + service.duration * 60_000;
 
-        const hasConflict = existingAppts.some((appt) => {
+        const hasConflict = existingAppts.some((appt: any) => {
             const existingStartMs = new Date(appt.dateTime).getTime();
 
             // Si por alguna razón no viene duración, usa la del servicio actual
