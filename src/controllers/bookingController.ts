@@ -35,11 +35,133 @@ function overlaps(aStart: Date, aDurationMin: number, bStart: Date, bDurationMin
  */
 export const getServices = async (req: Request, res: Response) => {
     try {
-        const services = await prisma.service.findMany();
+        const services = await prisma.service.findMany({
+            include: {
+                staff: true // Include staff for verification
+            }
+        });
         return res.json(services);
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: "Failed to fetch services" });
+    }
+};
+
+/**
+ * GET /staff
+ */
+export const getStaff = async (req: Request, res: Response) => {
+    try {
+        const staff = await prisma.staff.findMany({
+            include: {
+                services: true // Include services for verification
+            }
+        });
+        return res.json(staff);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: "Failed to fetch staff" });
+    }
+};
+
+/**
+ * POST /demo/seed
+ * Idempotent seed
+ */
+export const seedDatabase = async (req: Request, res: Response) => {
+    try {
+        // 1. Check if services exist
+        const serviceCount = await prisma.service.count();
+        if (serviceCount > 0) {
+            return res.status(200).json({ message: "Data already exists. Skipping seed." });
+        }
+
+        // 2. Create Services
+        const servicesData = [
+            { name: "Botox", duration: 30, price: 200 },
+            { name: "Facial", duration: 60, price: 100 },
+            { name: "Laser", duration: 45, price: 150 },
+            { name: "Fillers", duration: 30, price: 300 },
+            { name: "Massage", duration: 60, price: 80 }
+        ];
+
+        // Create sequentially or parallel
+        // We need IDs to assign to staff probably, or we can just create staff with connect
+
+        // Let's create services first
+        const createdServices = [];
+        for (const s of servicesData) {
+            const created = await prisma.service.create({ data: s });
+            createdServices.push(created);
+        }
+
+        // 3. Create Staff
+        const staffData = [
+            { name: "Alice", role: "Nurse" },
+            { name: "Bob", role: "Technician" },
+            { name: "Charlie", role: "Therapist" }
+        ];
+
+        const createdStaff = [];
+        for (const s of staffData) {
+            const created = await prisma.staff.create({ data: s });
+            createdStaff.push(created);
+        }
+
+        // 4. Assign Staff <-> Service
+        // Alice: Botox (0), Fillers (3)
+        // Bob: Laser (2), Facial (1)
+        // Charlie: Massage (4), Facial (1)
+
+        // Uses IDs from createdServices and createdStaff arrays
+
+        // Alice
+        await prisma.staff.update({
+            where: { id: createdStaff[0].id },
+            data: {
+                services: {
+                    connect: [
+                        { id: createdServices[0].id }, // Botox
+                        { id: createdServices[3].id }  // Fillers
+                    ]
+                }
+            }
+        });
+
+        // Bob
+        await prisma.staff.update({
+            where: { id: createdStaff[1].id },
+            data: {
+                services: {
+                    connect: [
+                        { id: createdServices[2].id }, // Laser
+                        { id: createdServices[1].id }  // Facial
+                    ]
+                }
+            }
+        });
+
+        // Charlie
+        await prisma.staff.update({
+            where: { id: createdStaff[2].id },
+            data: {
+                services: {
+                    connect: [
+                        { id: createdServices[4].id }, // Massage
+                        { id: createdServices[1].id }  // Facial
+                    ]
+                }
+            }
+        });
+
+        return res.status(201).json({
+            message: "Database seeded successfully",
+            services: createdServices.length,
+            staff: createdStaff.length
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: "Failed to seed database" });
     }
 };
 
@@ -192,23 +314,44 @@ export const createAppointment = async (req: Request, res: Response) => {
         const dayEnd = new Date(start);
         dayEnd.setUTCHours(23, 59, 59, 999);
 
+        // ✅ SOLO TRAER CITAS DEL MISMO STAFF + MISMO DIA
+
         const existingAppts = await prisma.appointment.findMany({
             where: {
-                staffId: staffIdNum,
-                dateTime: { gte: dayStart, lte: dayEnd },
+                staffId: staffIdNum, // 👈 importantísimo (si no, choca con todos)
+                dateTime: {
+                    gte: dayStart,
+                    lte: dayEnd,
+                },
             },
             include: { service: true },
         });
 
+        // ✅ Conflict check FIX (reemplaza líneas 202–211)
+        const startMs = start.getTime();
+        const endMs = startMs + service.duration * 60_000;
+
         const hasConflict = existingAppts.some((appt) => {
-            const existingStart = new Date(appt.dateTime);
-            const existingDuration = appt.service?.duration ?? 0;
-            return overlaps(start, service.duration, existingStart, existingDuration);
+            const existingStartMs = new Date(appt.dateTime).getTime();
+
+            // Si por alguna razón no viene duración, usa la del servicio actual
+            const existingDuration = appt.service?.duration ?? service.duration;
+            const existingEndMs = existingStartMs + existingDuration * 60_000;
+
+            // Overlap real: A empieza antes de que B termine Y B empieza antes de que A termine
+            return startMs < existingEndMs && existingStartMs < endMs;
         });
 
         if (hasConflict) {
-            return res.status(409).json({ error: "Time slot is not available" });
+            return res.status(409).json({
+                error: "Time slot is not available",
+                debug: {
+                    requestedStart: start.toISOString(),
+                    duration: service.duration,
+                },
+            });
         }
+
 
         // Create appointment
         const appointment = await prisma.appointment.create({
@@ -225,5 +368,69 @@ export const createAppointment = async (req: Request, res: Response) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: "Failed to create appointment" });
+    }
+};
+// GET /appointments?date=YYYY-MM-DD&staffId=1
+export const getAppointments = async (req: Request, res: Response) => {
+    try {
+        const date = String(req.query.date || "");
+        const staffId = req.query.staffId ? Number(req.query.staffId) : undefined;
+
+        if (!date) {
+            return res.status(400).json({ error: "Missing date (YYYY-MM-DD)" });
+        }
+
+        // Rango del día completo en UTC
+        const dayStart = new Date(`${date}T00:00:00.000Z`);
+        const dayEnd = new Date(`${date}T23:59:59.999Z`);
+
+        const appointments = await prisma.appointment.findMany({
+            where: {
+                dateTime: {
+                    gte: dayStart,
+                    lte: dayEnd,
+                },
+                ...(staffId ? { staffId } : {}),
+            },
+            include: {
+                service: true,
+                staff: true,
+            },
+            orderBy: {
+                dateTime: "asc",
+            },
+        });
+
+        return res.json({ date, staffId: staffId || null, appointments });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: "Failed to fetch appointments" });
+    }
+};
+// DELETE /appointments/:id
+export const deleteAppointment = async (req: Request, res: Response) => {
+    try {
+        const id = Number(req.params.id);
+
+        if (!id) {
+            return res.status(400).json({ error: "Missing appointment id" });
+        }
+
+        const existing = await prisma.appointment.findUnique({
+            where: { id },
+        });
+
+        if (!existing) {
+            return res.status(404).json({ error: "Appointment not found" });
+        }
+
+        await prisma.appointment.delete({
+            where: { id },
+        });
+
+        return res.json({ message: "Appointment deleted", id });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: "Failed to delete appointment" });
     }
 };

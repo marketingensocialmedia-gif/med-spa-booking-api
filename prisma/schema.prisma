@@ -6,9 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
 
 model Service {
   id           Int           @id @default(autoincrement())
@@ -16,6 +17,7 @@ model Service {
   duration     Int           // Duration in minutes
   price        Float
   appointments Appointment[]
+  staff        Staff[]
 }
 
 model Staff {
@@ -23,6 +25,7 @@ model Staff {
   name         String
   role         String
   appointments Appointment[]
+  services     Service[]
 }
 
 model Appointment {

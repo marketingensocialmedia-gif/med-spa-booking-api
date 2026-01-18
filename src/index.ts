@@ -1,3 +1,4 @@
+
 import express, { Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -18,7 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health Check
 app.get('/health', (req: Request, res: Response) => {
-    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Routes
@@ -26,5 +27,6 @@ app.use('/', bookingRoutes);
 
 // Start Server
 app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Server is running on http://localhost:${PORT}`);
 });
+
