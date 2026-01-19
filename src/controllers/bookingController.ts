@@ -177,11 +177,10 @@ export const getAvailability = async (req: Request, res: Response) => {
         const serviceId = Number(req.query.serviceId);
         const dateOnly = parseDateOnly(req.query.date);
 
-        // staffId opcional
-        const staffIdQuery = req.query.staffId ? Number(req.query.staffId) : null;
+        const staffId = Number(req.query.staffId);
 
-        if (!isValidId(serviceId) || !dateOnly) {
-            return res.status(400).json({ error: "Missing or invalid serviceId/date" });
+        if (!isValidId(serviceId) || !dateOnly || !isValidId(staffId)) {
+            return res.status(400).json({ error: "Missing or invalid serviceId/date/staffId" });
         }
 
         // 1) Traemos el servicio para saber duración
@@ -192,7 +191,39 @@ export const getAvailability = async (req: Request, res: Response) => {
         if (!service) {
             return res.status(404).json({ error: "Service not found" });
         }
+        // ✅ Rango del día completo en UTC
+        const dayStart = new Date(`${dateOnly}T00:00:00.000Z`);
+        const dayEnd = new Date(`${dateOnly}T23:59:59.999Z`);
 
+        // ✅ Traemos todas las citas YA tomadas de ese staff ese día
+        const bookedAppointments = await prisma.appointment.findMany({
+            where: {
+                staffId,
+                dateTime: { gte: dayStart, lte: dayEnd },
+            },
+            include: {
+                service: true, // para saber duración
+            },
+        });
+
+        // ✅ Convertimos lo ocupado a "slots bloqueados"
+        const blocked = new Set<string>();
+        const stepMinutes = 30;
+
+        for (const appt of bookedAppointments) {
+            const dur =
+                (appt.service as any)?.durationMin ??
+                (appt.service as any)?.duration ??
+                30;
+
+            let t = new Date(appt.dateTime);
+            const end = new Date(appt.dateTime.getTime() + dur * 60 * 1000);
+
+            while (t < end) {
+                blocked.add(t.toISOString());
+                t = new Date(t.getTime() + stepMinutes * 60 * 1000);
+            }
+        }
         // 2) Horario de trabajo (UTC)
         // Ajusta si quieres otro horario:
         const openHour = 8;   // 08:00
@@ -201,73 +232,34 @@ export const getAvailability = async (req: Request, res: Response) => {
         const workStart = new Date(`${dateOnly}T${String(openHour).padStart(2, "0")}:00:00.000Z`);
         const workEnd = new Date(`${dateOnly}T${String(closeHour).padStart(2, "0")}:00:00.000Z`);
 
-        // Rango completo del día (para filtrar citas)
-        const dayStart = new Date(`${dateOnly}T00:00:00.000Z`);
-        const dayEnd = new Date(`${dateOnly}T23:59:59.999Z`);
-
-        // 3) Staffs a revisar
-        const staffs =
-            staffIdQuery && isValidId(staffIdQuery)
-                ? await prisma.staff.findMany({ where: { id: staffIdQuery } })
-                : await prisma.staff.findMany();
-
-        if (!staffs.length) {
-            return res.status(404).json({ error: "No staff found" });
-        }
-
-        // 4) Traemos citas existentes por staff (mismo día)
-        const staffAppointmentsMap = new Map<number, any[]>();
-
-        for (const staff of staffs) {
-            const appts = await prisma.appointment.findMany({
-                where: {
-                    staffId: staff.id,
-                    dateTime: { gte: dayStart, lte: dayEnd },
-                },
-                include: { service: true },
-            });
-
-            staffAppointmentsMap.set(staff.id, appts);
-        }
-
         // 5) Generamos slots base (stride 30 minutos)
         const strideMinutes = 30;
         const availableSlots: string[] = [];
 
-        let cursor = new Date(workStart);
+        // Duración del servicio (en minutos)
+        const durationMin =
+            (service as any).durationMin ??
+            (service as any).duration ??
+            30;
 
-        while (cursor < workEnd) {
-            const slotStart = new Date(cursor);
-            const slotEnd = addMinutes(slotStart, service.duration);
+        let t = new Date(workStart);
 
-            // El servicio debe caber antes de cerrar
-            if (slotEnd > workEnd) break;
+        while (t.getTime() + durationMin * 60 * 1000 <= workEnd.getTime()) {
+            const iso = t.toISOString();
 
-            // ✅ Si staffId está especificado: solo revisa ese staff
-            // ✅ Si no: basta con que AL MENOS 1 staff esté libre
-            const slotIsAvailable = staffs.some((staff: any) => {
-                const staffAppts = staffAppointmentsMap.get(staff.id) ?? [];
-
-                const hasConflict = staffAppts.some((appt: any) => {
-                    const apptStart = new Date(appt.dateTime);
-                    const apptDuration = appt.service?.duration ?? service.duration;
-                    return overlaps(slotStart, service.duration, apptStart, apptDuration);
-                });
-
-                return !hasConflict;
-            });
-
-            if (slotIsAvailable) {
-                availableSlots.push(slotStart.toISOString());
+            // si el slot está bloqueado por cita existente -> no lo mostramos
+            if (!blocked.has(iso)) {
+                availableSlots.push(iso);
             }
 
-            cursor = addMinutes(cursor, strideMinutes);
+            t = new Date(t.getTime() + strideMinutes * 60 * 1000);
         }
 
-        return res.json({
+        return res.status(200).json({
             date: dateOnly,
             availableSlots,
         });
+
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: "Failed to fetch availability" });
